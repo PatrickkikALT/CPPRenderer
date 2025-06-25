@@ -6,6 +6,7 @@
 
 bool g_drawing = false;
 unsigned char* g_pBits = nullptr;
+int g_rowSize = 0;
 
 struct PPMImage {
   int width, height;
@@ -20,22 +21,27 @@ bool LoadPPM(const wchar_t* filename, PPMImage& img) {
   file >> magic;
   if (magic != "P3") return false;
 
-  while (file.peek() == '#') file.ignore(2048, '\n');
-
-  file >> img.width >> img.height;
-  int maxval;
-  file >> maxval;
-  if (maxval != 255) return false;
-
-  img.pixels.resize(img.width * img.height * 3);
-  for (size_t i = 0; i < img.pixels.size(); ++i) {
-    int val;
-    file >> val;
-    img.pixels[i] = static_cast<unsigned char>(val);
+  int width = 0, height = 0, maxval = 0;
+  while (file >> width) {
+    if (file >> height && file >> maxval) break;
   }
 
-  return file.good();
+  if (width <= 0 || height <= 0 || maxval != 255) return false;
+
+  img.width = width;
+  img.height = height;
+  img.pixels.resize(width * height * 3);
+
+  int val;
+  size_t i = 0;
+  while (file >> val && i < img.pixels.size()) {
+    if (val < 0 || val > 255) return false; 
+    img.pixels[i++] = static_cast<unsigned char>(val);
+  }
+
+  return i == img.pixels.size();
 }
+
 
 HBITMAP CreateBitmapFromPPM(const PPMImage& img) {
   BITMAPINFO bmi = {};
@@ -52,11 +58,19 @@ HBITMAP CreateBitmapFromPPM(const PPMImage& img) {
 
   if (hBitmap && g_pBits) {
     unsigned char* dest = static_cast<unsigned char*>(g_pBits);
-    for (int i = 0; i < img.width * img.height; ++i) {
-      dest[i * 3 + 0] = img.pixels[i * 3 + 2];
-      dest[i * 3 + 1] = img.pixels[i * 3 + 1];
-      dest[i * 3 + 2] = img.pixels[i * 3 + 0];
+    g_rowSize = ((img.width * 3 + 3) & ~3);
+
+    for (int y = 0; y < img.height; ++y) {
+      for (int x = 0; x < img.width; ++x) {
+        int srcIdx = (y * img.width + x) * 3;
+        int dstIdx = y * g_rowSize + x * 3;
+
+        dest[dstIdx + 0] = img.pixels[srcIdx + 2];
+        dest[dstIdx + 1] = img.pixels[srcIdx + 1];
+        dest[dstIdx + 2] = img.pixels[srcIdx + 0];
+      }
     }
+
   }
 
   return hBitmap;
@@ -114,7 +128,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
       int imgY = y * g_image.height / height;
 
       if (imgX >= 0 && imgX < g_image.width && imgY >= 0 && imgY < g_image.height) {
-        int index = (imgY * g_image.width + imgX) * 3;
+        int index = imgY * g_rowSize + imgX * 3;
         g_pBits[index + 0] = 0;
         g_pBits[index + 1] = 0;
         g_pBits[index + 2] = 255;
