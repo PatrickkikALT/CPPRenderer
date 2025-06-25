@@ -4,6 +4,9 @@
 #include <vector>
 #include <string>
 
+bool g_drawing = false;
+unsigned char* g_pBits = nullptr;
+
 struct PPMImage {
   int width, height;
   std::vector<unsigned char> pixels;
@@ -43,13 +46,12 @@ HBITMAP CreateBitmapFromPPM(const PPMImage& img) {
   bmi.bmiHeader.biBitCount = 24;
   bmi.bmiHeader.biCompression = BI_RGB;
 
-  void* pBits = nullptr;
   HDC hdc = GetDC(nullptr);
-  HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
+  HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, reinterpret_cast<void**>(&g_pBits), nullptr, 0);
   ReleaseDC(nullptr, hdc);
 
-  if (hBitmap && pBits) {
-    unsigned char* dest = static_cast<unsigned char*>(pBits);
+  if (hBitmap && g_pBits) {
+    unsigned char* dest = static_cast<unsigned char*>(g_pBits);
     for (int i = 0; i < img.width * img.height; ++i) {
       dest[i * 3 + 0] = img.pixels[i * 3 + 2];
       dest[i * 3 + 1] = img.pixels[i * 3 + 1];
@@ -89,7 +91,37 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     EndPaint(hwnd, &ps);
     return 0;
   }
+  case WM_LBUTTONDOWN:
+    g_drawing = true;
+    SetCapture(hwnd);
+    return 0;
+  case WM_LBUTTONUP:
+    g_drawing = false;
+    ReleaseCapture();
+    return 0;
 
+  case WM_MOUSEMOVE:
+    if (g_drawing && g_pBits) {
+      int x = LOWORD(lParam);
+      int y = HIWORD(lParam);
+
+      RECT rect;
+      GetClientRect(hwnd, &rect);
+      int width = rect.right;
+      int height = rect.bottom;
+
+      int imgX = x * g_image.width / width;
+      int imgY = y * g_image.height / height;
+
+      if (imgX >= 0 && imgX < g_image.width && imgY >= 0 && imgY < g_image.height) {
+        int index = (imgY * g_image.width + imgX) * 3;
+        g_pBits[index + 0] = 0;
+        g_pBits[index + 1] = 0;
+        g_pBits[index + 2] = 255;
+        InvalidateRect(hwnd, nullptr, FALSE);
+      }
+    }
+    return 0;
   case WM_DESTROY:
     PostQuitMessage(0);
     return 0;
